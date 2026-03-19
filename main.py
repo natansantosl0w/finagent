@@ -1,67 +1,31 @@
-from fastapi import FastAPI, File, UploadFile
-from fastapi.responses import JSONResponse
-import pandas as pd
-import io
+import google.generativeai as genai
+import os
+from dotenv import load_dotenv
 
-app = FastAPI(
-    title="FinAgent - MVP",
-    description="Agente de IA para análise de CSV de transações financeiras",
-    version="1.0.0"
-)
+load_dotenv()
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
-@app.post("/analyze")
-async def analyze_transactions(file: UploadFile = File(...)):
-    try:
-        # 1. Ler CSV enviado
-        content = await file.read()
-        df = pd.read_csv(io.StringIO(content.decode("utf-8")))
+model = genai.GenerativeModel('gemini-2.5-flash')
 
-        # 2. Validar colunas obrigatórias
-        required_cols = ["date", "description", "amount", "category", "type"]
-        if not all(col in df.columns for col in required_cols):
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "error": f"CSV deve ter colunas: {required_cols}"
-                }
-            )
+def finagent(pergunta):
+    prompt = f"""
+    Você é FinAgent, assistente financeiro brasileiro inteligente.
+    
+    PERGUNTA: {pergunta}
+    
+    Responda em PORTUGUÊS, direto e prático.
+    Use R$ para valores.
+    Seja específico com números e cálculos.
+    """
+    
+    response = model.generate_content(prompt)
+    return response.text
 
-        # 3. Limpeza de dados
-        df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
-        df = df.dropna(subset=["amount"])
-
-        # 4. Separar receitas e despesas
-        df["type"] = df["type"].str.lower()
-        is_income = df["type"] == "income"
-        total_income = df[is_income]["amount"].sum()
-        total_expense = df[~is_income]["amount"].sum()
-
-        # 5. Estatísticas
-        avg_income = df[is_income]["amount"].mean() if is_income.sum() > 0 else 0
-        avg_expense = df[~is_income]["amount"].mean() if (~is_income).sum() > 0 else 0
-
-        # 6. Resumo final
-        summary = {
-            "status": "success",
-            "total_transactions": len(df),
-            "total_income": round(float(total_income), 2),
-            "total_expense": round(float(total_expense), 2),
-            "net_balance": round(float(total_income - total_expense), 2),
-            "avg_income": round(float(avg_income), 2) if avg_income else 0,
-            "avg_expense": round(float(avg_expense), 2) if avg_expense else 0,
-            "income_transactions": int(is_income.sum()),
-            "expense_transactions": int((~is_income).sum()),
-            "columns": df.columns.tolist()
-        }
-
-        return summary
-
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={"error": str(e), "status": "error"}
-        )
-
-@app.get("/")
-async def root():
-    return {"message": "FinAgent API - Agente de IA para transações financeiras"}
+if __name__ == "__main__":
+    print("🚀 FinAgent v1.0 Online!")
+    while True:
+        pergunta = input("\n💰 Pergunte sobre finanças (ou 'sair'): ")
+        if pergunta.lower() == 'sair':
+            print("👋 Até logo!")
+            break
+        print("🤖", finagent(pergunta))
